@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  pomodoro-app:
+    build: .
+    ports:
+      - "8080:8080"
+    container_name: pomodoro-timer
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    volumes: []
+      # Optional: Mount for development (uncomment to enable live reload)
+      # - ./:/app
+      # - /app/node_modules
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s 

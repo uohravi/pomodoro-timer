@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pomodoro Timer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-clock"></i> Pomodoro Timer</h1>
+        </header>
+
+        <main>
+            <!-- Timer Display -->
+            <div class="timer-section">
+                <div class="timer-display">
+                    <div class="time" id="timer">25:00</div>
+                    <div class="timer-label" id="timer-label">Focus Time</div>
+                </div>
+                
+                <div class="timer-controls">
+                    <button id="start-btn" class="btn btn-primary">
+                        <i class="fas fa-play"></i> Start
+                    </button>
+                    <button id="pause-btn" class="btn btn-secondary" disabled>
+                        <i class="fas fa-pause"></i> Pause
+                    </button>
+                    <button id="reset-btn" class="btn btn-secondary">
+                        <i class="fas fa-redo"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+            <!-- Task Input -->
+            <div class="task-section">
+                <div class="task-input">
+                    <input type="text" id="task-input" placeholder="Enter your task name..." maxlength="50">
+                    <button id="add-task-btn" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Add Task
+                    </button>
+                </div>
+                <div class="current-task" id="current-task">
+                    <span class="task-label">Current Task:</span>
+                    <span class="task-name" id="task-name">No task set</span>
+                </div>
+            </div>
+
+            <!-- Timer Modes -->
+            <div class="timer-modes">
+                <button class="mode-btn active" data-mode="focus" data-time="25">
+                    <i class="fas fa-brain"></i> Focus
+                </button>
+                <button class="mode-btn" data-mode="break" data-time="5">
+                    <i class="fas fa-coffee"></i> Break
+                </button>
+                <button class="mode-btn" data-mode="long-break" data-time="15">
+                    <i class="fas fa-bed"></i> Long Break
+                </button>
+            </div>
+
+            <!-- Settings -->
+            <div class="settings-section">
+                <h3><i class="fas fa-cog"></i> Settings</h3>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <label for="focus-time">Focus Time (min):</label>
+                        <input type="number" id="focus-time" value="25" min="1" max="60">
+                    </div>
+                    <div class="setting-item">
+                        <label for="break-time">Break Time (min):</label>
+                        <input type="number" id="break-time" value="5" min="1" max="30">
+                    </div>
+                    <div class="setting-item">
+                        <label for="long-break-time">Long Break Time (min):</label>
+                        <input type="number" id="long-break-time" value="15" min="5" max="60">
+                    </div>
+                    <div class="setting-item">
+                        <label for="sessions-before-long-break">Sessions Before Long Break:</label>
+                        <input type="number" id="sessions-before-long-break" value="4" min="2" max="10">
+                    </div>
+                    <div class="setting-item">
+                        <label for="sound-toggle">Sound Notifications:</label>
+                        <input type="checkbox" id="sound-toggle" checked>
+                    </div>
+                </div>
+
+                <!-- Database Management -->
+                <div class="database-section">
+                    <h4><i class="fas fa-database"></i> Database Management</h4>
+                    <div class="database-controls">
+                        <button id="export-data-btn" class="btn btn-primary">
+                            <i class="fas fa-download"></i> Export All Data
+                        </button>
+                        <button id="import-data-btn" class="btn btn-secondary">
+                            <i class="fas fa-upload"></i> Import Data
+                        </button>
+                        <button id="migrate-data-btn" class="btn btn-secondary">
+                            <i class="fas fa-exchange-alt"></i> Migrate from localStorage
+                        </button>
+                        <button id="cleanup-data-btn" class="btn btn-secondary">
+                            <i class="fas fa-broom"></i> Cleanup Old Data
+                        </button>
+                    </div>
+                    <div class="database-info" id="database-info">
+                        <!-- Database info will be displayed here -->
+                    </div>
+                    <input type="file" id="import-file-input" accept=".json" style="display: none;">
+                </div>
+            </div>
+
+            <!-- Reports -->
+            <div class="reports-section">
+                <h3><i class="fas fa-chart-bar"></i> Reports & Analytics</h3>
+                <div class="reports-controls">
+                    <button id="export-report-btn" class="btn btn-primary">
+                        <i class="fas fa-download"></i> Export Report
+                    </button>
+                </div>
+                
+                <!-- Statistics Summary -->
+                <div class="stats-section">
+                    <h4>Last 30 Days Summary</h4>
+                    <div id="report-stats">
+                        <!-- Stats will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Monthly Report -->
+                <div class="monthly-section">
+                    <div id="monthly-report">
+                        <!-- Monthly data will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- History -->
+            <div class="history-section">
+                <h3><i class="fas fa-history"></i> Session History</h3>
+                <div class="history-controls">
+                    <button id="clear-history-btn" class="btn btn-secondary">
+                        <i class="fas fa-trash"></i> Clear History
+                    </button>
+                </div>
+                <div class="history-list" id="history-list">
+                    <!-- History items will be added here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Notification Sound -->
+    <audio id="notification-sound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT" type="audio/wav">
+    </audio>
+
+    <script src="database.js"></script>
+    <script src="script.js"></script>
+</body>
+</html> 
