@@ -4,6 +4,8 @@ class PomodoroTimer {
         this.totalTime = 25 * 60;
         this.isRunning = false;
         this.timer = null;
+        this.startTime = null; // Track when timer started
+        this.pauseTime = null; // Track when timer was paused
         this.currentMode = 'focus';
         this.currentTask = '';
         this.sessionCount = 0;
@@ -99,6 +101,14 @@ class PomodoroTimer {
         // History
         this.clearHistoryBtn.addEventListener('click', () => this.clearHistory());
 
+        // Page visibility change (when switching tabs)
+        document.addEventListener('visibilitychange', () => {
+            if (this.isRunning) {
+                // Force update display when page becomes visible
+                this.updateDisplay();
+            }
+        });
+
         // Reports
         const exportReportBtn = document.getElementById('export-report-btn');
         if (exportReportBtn) {
@@ -139,8 +149,21 @@ class PomodoroTimer {
         this.startBtn.disabled = true;
         this.pauseBtn.disabled = false;
 
+        // Record start time (accounting for paused time)
+        if (this.startTime === null) {
+            this.startTime = Date.now();
+        } else if (this.pauseTime !== null) {
+            // Resume from pause: adjust start time by the pause duration
+            const pauseDuration = Date.now() - this.pauseTime;
+            this.startTime += pauseDuration;
+            this.pauseTime = null;
+        }
+
         this.timer = setInterval(async () => {
-            this.timeLeft--;
+            // Calculate elapsed time based on actual time passed
+            const elapsedTime = Math.floor((Date.now() - this.startTime) / 1000);
+            this.timeLeft = Math.max(0, this.totalTime - elapsedTime);
+            
             this.updateDisplay();
 
             if (this.timeLeft <= 0) {
@@ -156,11 +179,16 @@ class PomodoroTimer {
         this.startBtn.disabled = false;
         this.pauseBtn.disabled = true;
         clearInterval(this.timer);
+        
+        // Record pause time
+        this.pauseTime = Date.now();
     }
 
     resetTimer() {
         this.pauseTimer();
         this.timeLeft = this.totalTime;
+        this.startTime = null;
+        this.pauseTime = null;
         this.updateDisplay();
     }
 
@@ -176,6 +204,10 @@ class PomodoroTimer {
         this.currentMode = mode;
         this.totalTime = time * 60;
         this.timeLeft = this.totalTime;
+
+        // Reset timer state when switching modes
+        this.startTime = null;
+        this.pauseTime = null;
 
         // Update timer label
         const labels = {
@@ -403,6 +435,13 @@ class PomodoroTimer {
         const minutes = Math.floor(this.timeLeft / 60);
         const seconds = this.timeLeft % 60;
         this.timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        
+        // Add visual indicator for background timer
+        if (this.isRunning && document.hidden) {
+            this.timerDisplay.classList.add('background-timer');
+        } else {
+            this.timerDisplay.classList.remove('background-timer');
+        }
     }
 
     playNotification() {

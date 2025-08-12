@@ -106,7 +106,7 @@ docker-compose up -d --build
 ## 📊 Monitoring
 
 ### Health Check
-The container includes a health check that verifies the web server is responding:
+The container includes a quiet health check that verifies the web server is responding without generating noise:
 ```bash
 docker inspect pomodoro-timer | grep Health -A 10
 ```

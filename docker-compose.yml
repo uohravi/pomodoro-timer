@@ -14,7 +14,7 @@ services:
       # - ./:/app
       # - /app/node_modules
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:8080"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080 > /dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
