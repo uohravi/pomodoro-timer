@@ -25,7 +25,7 @@ class PomodoroTimer {
             await this.loadTaskHistory();
             this.updateDisplay();
             this.renderHistory();
-            this.updateReportStats();
+            await this.updateReportStats();
             this.updateDatabaseInfo();
         } catch (error) {
             console.error('Failed to initialize database:', error);
@@ -306,7 +306,7 @@ class PomodoroTimer {
             await this.database.addSession(historyItem);
             await this.loadHistory();
             this.renderHistory();
-            this.updateReportStats();
+            await this.updateReportStats();
             this.updateDatabaseInfo();
         } catch (error) {
             console.error('Failed to save session to database:', error);
@@ -349,12 +349,22 @@ class PomodoroTimer {
             const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const dateString = date.toLocaleDateString();
 
+            // Enhanced task display
+            const taskDisplay = item.task && item.task !== 'No task specified' 
+                ? `<div class="history-task">${item.task}</div>`
+                : `<div class="history-task no-task">No task specified</div>`;
+
+            // Add task session count if available
+            const taskSessionInfo = item.taskId ? 
+                `<div class="task-session-info">Task ID: ${item.taskId}</div>` : '';
+
             historyItem.innerHTML = `
                 <div class="history-info">
-                    <div class="history-task">${item.task}</div>
+                    ${taskDisplay}
                     <div class="history-details">
                         <i class="${modeIcons[item.mode]}"></i> ${modeLabels[item.mode]} • ${item.duration} min • Session ${item.sessionNumber}
                     </div>
+                    ${taskSessionInfo}
                 </div>
                 <div class="history-time">
                     ${timeString}<br><small>${dateString}</small>
@@ -572,15 +582,37 @@ class PomodoroTimer {
 
     // ===== REPORTING METHODS =====
 
-    updateReportStats() {
-        this.renderReportStats();
+    async updateReportStats() {
+        await this.renderReportStats();
         this.renderMonthlyReport();
     }
 
-    renderReportStats() {
-        const stats = this.calculateStats();
+    async renderReportStats() {
+        const stats = await this.calculateStats();
         const statsContainer = document.getElementById('report-stats');
         if (!statsContainer) return;
+
+        let taskStatsHTML = '';
+        if (stats.taskStats && stats.taskStats.taskBreakdown.length > 0) {
+            const topTasks = stats.taskStats.taskBreakdown.slice(0, 3);
+            taskStatsHTML = `
+                <div class="task-analytics">
+                    <h4>Top Tasks (Last 30 Days)</h4>
+                    <div class="task-analytics-grid">
+                        ${topTasks.map((task, index) => `
+                            <div class="task-analytics-item">
+                                <div class="task-rank">#${index + 1}</div>
+                                <div class="task-name">${task.name}</div>
+                                <div class="task-metrics">
+                                    <span class="task-hours">${(task.focusMinutes / 60).toFixed(1)}h</span>
+                                    <span class="task-sessions">${task.sessions} sessions</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
 
         statsContainer.innerHTML = `
             <div class="stats-grid">
@@ -598,9 +630,18 @@ class PomodoroTimer {
                 </div>
                 <div class="stat-item">
                     <div class="stat-value">${stats.averageDailyHours.toFixed(1)}h</div>
-                    <div class="stat-label">Avg Daily</div>
+                    <div class="stat-label">Avg Daily Focus</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${stats.daysActive}</div>
+                    <div class="stat-label">Days Active</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${stats.taskStats?.activeTasks || 0}</div>
+                    <div class="stat-label">Active Tasks</div>
                 </div>
             </div>
+            ${taskStatsHTML}
         `;
     }
 
@@ -651,7 +692,7 @@ class PomodoroTimer {
         reportContainer.innerHTML = reportHTML;
     }
 
-    calculateStats() {
+    async calculateStats() {
         const now = new Date();
         const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
         
@@ -667,13 +708,70 @@ class PomodoroTimer {
 
         const daysActive = new Set(recentSessions.map(session => session.date)).size;
 
+        // Calculate task-specific statistics
+        const taskStats = await this.calculateTaskStats(recentSessions);
+
         return {
             totalSessions: recentSessions.length,
             totalFocusHours: totalFocusMinutes / 60,
             totalBreakHours: totalBreakMinutes / 60,
             averageDailyHours: daysActive > 0 ? totalFocusMinutes / 60 / daysActive : 0,
-            daysActive: daysActive
+            daysActive: daysActive,
+            taskStats: taskStats
         };
+    }
+
+    async calculateTaskStats(sessions) {
+        try {
+            const tasks = await this.database.getAllTasks();
+            const taskStats = {
+                totalTasks: tasks.length,
+                activeTasks: 0,
+                mostProductiveTask: null,
+                taskBreakdown: []
+            };
+
+            // Calculate task-specific metrics for the given sessions
+            const taskSessions = {};
+            sessions.forEach(session => {
+                if (session.task && session.task !== 'No task specified') {
+                    if (!taskSessions[session.task]) {
+                        taskSessions[session.task] = {
+                            name: session.task,
+                            sessions: 0,
+                            totalMinutes: 0,
+                            focusMinutes: 0,
+                            lastUsed: session.completedAt
+                        };
+                    }
+                    taskSessions[session.task].sessions++;
+                    taskSessions[session.task].totalMinutes += session.duration;
+                    if (session.mode === 'focus') {
+                        taskSessions[session.task].focusMinutes += session.duration;
+                    }
+                    if (new Date(session.completedAt) > new Date(taskSessions[session.task].lastUsed)) {
+                        taskSessions[session.task].lastUsed = session.completedAt;
+                    }
+                }
+            });
+
+            // Convert to array and sort by focus minutes
+            taskStats.taskBreakdown = Object.values(taskSessions)
+                .sort((a, b) => b.focusMinutes - a.focusMinutes);
+
+            taskStats.activeTasks = taskStats.taskBreakdown.length;
+            taskStats.mostProductiveTask = taskStats.taskBreakdown[0] || null;
+
+            return taskStats;
+        } catch (error) {
+            console.error('Error calculating task stats:', error);
+            return {
+                totalTasks: 0,
+                activeTasks: 0,
+                mostProductiveTask: null,
+                taskBreakdown: []
+            };
+        }
     }
 
     calculateMonthlyStats() {
@@ -709,8 +807,8 @@ class PomodoroTimer {
         return monthlyData;
     }
 
-    exportReport() {
-        const stats = this.calculateStats();
+    async exportReport() {
+        const stats = await this.calculateStats();
         const monthlyData = this.calculateMonthlyStats();
         
         let reportText = 'POMODORO TIMER REPORT\n';
@@ -724,9 +822,23 @@ class PomodoroTimer {
         reportText += `- Focus Hours: ${stats.totalFocusHours.toFixed(1)}h\n`;
         reportText += `- Break Hours: ${stats.totalBreakHours.toFixed(1)}h\n`;
         reportText += `- Average Daily Focus: ${stats.averageDailyHours.toFixed(1)}h\n`;
-        reportText += `- Days Active: ${stats.daysActive}\n\n`;
+        reportText += `- Days Active: ${stats.daysActive}\n`;
+        reportText += `- Active Tasks: ${stats.taskStats?.activeTasks || 0}\n\n`;
+        
+        // Add task breakdown
+        if (stats.taskStats && stats.taskStats.taskBreakdown.length > 0) {
+            reportText += 'TASK BREAKDOWN (Last 30 Days):\n';
+            reportText += '=============================\n';
+            stats.taskStats.taskBreakdown.forEach((task, index) => {
+                reportText += `${index + 1}. ${task.name}\n`;
+                reportText += `   - Focus Hours: ${(task.focusMinutes / 60).toFixed(1)}h\n`;
+                reportText += `   - Total Sessions: ${task.sessions}\n`;
+                reportText += `   - Last Used: ${new Date(task.lastUsed).toLocaleDateString()}\n\n`;
+            });
+        }
         
         reportText += 'MONTHLY BREAKDOWN:\n';
+        reportText += '==================\n';
         Object.keys(monthlyData).sort().reverse().forEach(monthKey => {
             const data = monthlyData[monthKey];
             const [year, month] = monthKey.split('-');
