@@ -22,6 +22,7 @@ class PomodoroTimer {
             await this.database.init();
             await this.loadSettings();
             await this.loadHistory();
+            await this.loadTaskHistory();
             this.updateDisplay();
             this.renderHistory();
             this.updateReportStats();
@@ -73,6 +74,11 @@ class PomodoroTimer {
         this.cleanupDataBtn = document.getElementById('cleanup-data-btn');
         this.databaseInfo = document.getElementById('database-info');
         this.importFileInput = document.getElementById('import-file-input');
+
+        // Task history elements
+        this.refreshTasksBtn = document.getElementById('refresh-tasks-btn');
+        this.taskStats = document.getElementById('task-stats');
+        this.taskList = document.getElementById('task-list');
     }
 
     bindEvents() {
@@ -130,6 +136,11 @@ class PomodoroTimer {
         }
         if (this.importFileInput) {
             this.importFileInput.addEventListener('change', (e) => this.importData(e));
+        }
+
+        // Task History
+        if (this.refreshTasksBtn) {
+            this.refreshTasksBtn.addEventListener('click', () => this.loadTaskHistory());
         }
 
         // Request notification permission
@@ -265,8 +276,20 @@ class PomodoroTimer {
     }
 
     async addToHistory() {
+        let taskId = null;
+        
+        // Add task to task history if task name is provided
+        if (this.currentTask && this.currentTask.trim()) {
+            try {
+                taskId = await this.database.addTask(this.currentTask.trim());
+            } catch (error) {
+                console.error('Failed to add task to history:', error);
+            }
+        }
+
         const historyItem = {
             task: this.currentTask || 'No task specified',
+            taskId: taskId, // Link to task in tasks table
             mode: this.currentMode,
             duration: this.totalTime / 60,
             completedAt: new Date().toISOString(),
@@ -368,6 +391,78 @@ class PomodoroTimer {
             console.error('Failed to load history from database:', error);
             // Fallback to localStorage
             this.history = JSON.parse(localStorage.getItem('pomodoroHistory')) || [];
+        }
+    }
+
+    async loadTaskHistory() {
+        try {
+            const tasks = await this.database.getAllTasks();
+            const taskStats = await this.database.getTaskStats();
+            this.renderTaskHistory(tasks, taskStats);
+        } catch (error) {
+            console.error('Failed to load task history:', error);
+            this.renderTaskHistory([], {});
+        }
+    }
+
+    renderTaskHistory(tasks, stats) {
+        // Render task statistics
+        if (this.taskStats) {
+            this.taskStats.innerHTML = `
+                <div class="task-stats-grid">
+                    <div class="task-stat-item">
+                        <div class="task-stat-value">${stats.totalTasks || 0}</div>
+                        <div class="task-stat-label">Total Tasks</div>
+                    </div>
+                    <div class="task-stat-item">
+                        <div class="task-stat-value">${stats.totalSessions || 0}</div>
+                        <div class="task-stat-label">Total Sessions</div>
+                    </div>
+                    <div class="task-stat-item">
+                        <div class="task-stat-value">${stats.averageSessionsPerTask ? stats.averageSessionsPerTask.toFixed(1) : 0}</div>
+                        <div class="task-stat-label">Avg Sessions/Task</div>
+                    </div>
+                    <div class="task-stat-item">
+                        <div class="task-stat-value">${stats.mostUsedTask ? stats.mostUsedTask.totalSessions : 0}</div>
+                        <div class="task-stat-label">Most Used Task</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render task list
+        if (this.taskList) {
+            this.taskList.innerHTML = '';
+
+            if (tasks.length === 0) {
+                this.taskList.innerHTML = '<p style="text-align: center; color: #666; font-style: italic;">No tasks completed yet</p>';
+                return;
+            }
+
+            tasks.forEach(task => {
+                const taskItem = document.createElement('div');
+                taskItem.className = 'task-item';
+
+                const lastUsed = new Date(task.lastUsed);
+                const lastUsedString = lastUsed.toLocaleDateString();
+                const createdAt = new Date(task.createdAt);
+                const createdAtString = createdAt.toLocaleDateString();
+
+                taskItem.innerHTML = `
+                    <div class="task-info">
+                        <div class="task-name">${task.name}</div>
+                        <div class="task-details">
+                            Created: ${createdAtString} • Last used: ${lastUsedString}
+                        </div>
+                    </div>
+                    <div class="task-metrics">
+                        <div class="task-sessions">${task.totalSessions || 0} sessions</div>
+                        <div class="task-last-used">${lastUsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                `;
+
+                this.taskList.appendChild(taskItem);
+            });
         }
     }
 

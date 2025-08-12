@@ -1,7 +1,7 @@
 class PomodoroDatabase {
     constructor() {
         this.dbName = 'PomodoroDB';
-        this.dbVersion = 1;
+        this.dbVersion = 2; // Increment version for new schema
         this.db = null;
         this.init();
     }
@@ -23,6 +23,10 @@ class PomodoroDatabase {
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                const oldVersion = event.oldVersion;
+                const newVersion = event.newVersion;
+
+                console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
 
                 // Create sessions table
                 if (!db.objectStoreNames.contains('sessions')) {
@@ -37,6 +41,21 @@ class PomodoroDatabase {
                     sessionsStore.createIndex('mode', 'mode', { unique: false });
                     sessionsStore.createIndex('month', 'month', { unique: false });
                     sessionsStore.createIndex('year', 'year', { unique: false });
+                    sessionsStore.createIndex('taskId', 'taskId', { unique: false });
+                }
+
+                // Create tasks table for task history
+                if (!db.objectStoreNames.contains('tasks')) {
+                    const tasksStore = db.createObjectStore('tasks', { 
+                        keyPath: 'id', 
+                        autoIncrement: true 
+                    });
+                    
+                    // Create indexes for task querying
+                    tasksStore.createIndex('name', 'name', { unique: false });
+                    tasksStore.createIndex('createdAt', 'createdAt', { unique: false });
+                    tasksStore.createIndex('lastUsed', 'lastUsed', { unique: false });
+                    tasksStore.createIndex('totalSessions', 'totalSessions', { unique: false });
                 }
 
                 // Create settings table
@@ -46,7 +65,12 @@ class PomodoroDatabase {
                     });
                 }
 
-                console.log('Database schema created');
+                // Migrate existing data if upgrading from version 1
+                if (oldVersion < 2) {
+                    this.migrateToVersion2(db);
+                }
+
+                console.log('Database schema created/upgraded');
             };
         });
     }
@@ -97,6 +121,221 @@ class PomodoroDatabase {
                 reject(request.error);
             };
         });
+    }
+
+    // Task Management Methods
+    async addTask(taskName) {
+        return new Promise(async (resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            try {
+                // Check if task already exists
+                const existingTask = await this.getTaskByName(taskName);
+                
+                if (existingTask) {
+                    // Update existing task
+                    existingTask.lastUsed = new Date().toISOString();
+                    existingTask.totalSessions = (existingTask.totalSessions || 0) + 1;
+                    
+                    const updateTransaction = this.db.transaction(['tasks'], 'readwrite');
+                    const updateStore = updateTransaction.objectStore('tasks');
+                    const updateRequest = updateStore.put(existingTask);
+                    
+                    updateRequest.onsuccess = () => {
+                        resolve(existingTask.id);
+                    };
+                    
+                    updateRequest.onerror = () => {
+                        reject(updateRequest.error);
+                    };
+                } else {
+                    // Create new task
+                    const newTask = {
+                        name: taskName,
+                        createdAt: new Date().toISOString(),
+                        lastUsed: new Date().toISOString(),
+                        totalSessions: 1
+                    };
+                    
+                    const transaction = this.db.transaction(['tasks'], 'readwrite');
+                    const store = transaction.objectStore('tasks');
+                    const request = store.add(newTask);
+                    
+                    request.onsuccess = () => {
+                        resolve(request.result);
+                    };
+                    
+                    request.onerror = () => {
+                        reject(request.error);
+                    };
+                }
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    async getTaskByName(taskName) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            const transaction = this.db.transaction(['tasks'], 'readonly');
+            const store = transaction.objectStore('tasks');
+            const nameIndex = store.index('name');
+            const request = nameIndex.get(taskName);
+
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+
+            request.onerror = () => {
+                reject(request.error);
+            };
+        });
+    }
+
+    async getAllTasks() {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            const transaction = this.db.transaction(['tasks'], 'readonly');
+            const store = transaction.objectStore('tasks');
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                // Sort by lastUsed descending (most recently used first)
+                const tasks = request.result.sort((a, b) => 
+                    new Date(b.lastUsed) - new Date(a.lastUsed)
+                );
+                resolve(tasks);
+            };
+
+            request.onerror = () => {
+                reject(request.error);
+            };
+        });
+    }
+
+    async getTaskById(taskId) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            const transaction = this.db.transaction(['tasks'], 'readonly');
+            const store = transaction.objectStore('tasks');
+            const request = store.get(taskId);
+
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+
+            request.onerror = () => {
+                reject(request.error);
+            };
+        });
+    }
+
+    async getSessionsByTask(taskId) {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            const transaction = this.db.transaction(['sessions'], 'readonly');
+            const store = transaction.objectStore('sessions');
+            const taskIndex = store.index('taskId');
+            const request = taskIndex.getAll(taskId);
+
+            request.onsuccess = () => {
+                // Sort by completedAt descending (newest first)
+                const sessions = request.result.sort((a, b) => 
+                    new Date(b.completedAt) - new Date(a.completedAt)
+                );
+                resolve(sessions);
+            };
+
+            request.onerror = () => {
+                reject(request.error);
+            };
+        });
+    }
+
+    async getTaskStats() {
+        return new Promise(async (resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            try {
+                const tasks = await this.getAllTasks();
+                const stats = {
+                    totalTasks: tasks.length,
+                    totalSessions: tasks.reduce((sum, task) => sum + (task.totalSessions || 0), 0),
+                    mostUsedTask: tasks.length > 0 ? tasks[0] : null,
+                    recentTasks: tasks.slice(0, 5), // Top 5 most recent
+                    averageSessionsPerTask: tasks.length > 0 ? 
+                        tasks.reduce((sum, task) => sum + (task.totalSessions || 0), 0) / tasks.length : 0
+                };
+                resolve(stats);
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    // Migration function for version 2
+    async migrateToVersion2(db) {
+        console.log('Migrating to version 2: Adding task history support');
+        
+        try {
+            // Get all existing sessions
+            const transaction = db.transaction(['sessions'], 'readonly');
+            const sessionsStore = transaction.objectStore('sessions');
+            const sessionsRequest = sessionsStore.getAll();
+            
+            sessionsRequest.onsuccess = async () => {
+                const sessions = sessionsRequest.result;
+                
+                // Process each session to extract task information
+                for (const session of sessions) {
+                    if (session.task && !session.taskId) {
+                        try {
+                            // Add task to tasks table
+                            const taskId = await this.addTask(session.task);
+                            
+                            // Update session with taskId
+                            session.taskId = taskId;
+                            
+                            // Update session in database
+                            const updateTransaction = db.transaction(['sessions'], 'readwrite');
+                            const updateStore = updateTransaction.objectStore('sessions');
+                            updateStore.put(session);
+                            
+                        } catch (error) {
+                            console.error('Error migrating session:', error);
+                        }
+                    }
+                }
+                
+                console.log('Migration to version 2 completed');
+            };
+            
+        } catch (error) {
+            console.error('Migration error:', error);
+        }
     }
 
     async getSessionsByDateRange(startDate, endDate) {
@@ -183,6 +422,27 @@ class PomodoroDatabase {
 
             const transaction = this.db.transaction(['sessions'], 'readwrite');
             const store = transaction.objectStore('sessions');
+            const request = store.clear();
+
+            request.onsuccess = () => {
+                resolve();
+            };
+
+            request.onerror = () => {
+                reject(request.error);
+            };
+        });
+    }
+
+    async clearAllTasks() {
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                reject(new Error('Database not initialized'));
+                return;
+            }
+
+            const transaction = this.db.transaction(['tasks'], 'readwrite');
+            const store = transaction.objectStore('tasks');
             const request = store.clear();
 
             request.onsuccess = () => {
@@ -292,13 +552,20 @@ class PomodoroDatabase {
     async exportData() {
         try {
             const sessions = await this.getAllSessions();
+            const tasks = await this.getAllTasks();
             const settings = await this.loadSettings();
             
             return {
                 sessions,
+                tasks,
                 settings,
                 exportDate: new Date().toISOString(),
-                version: '1.0'
+                version: '2.0',
+                metadata: {
+                    totalSessions: sessions.length,
+                    totalTasks: tasks.length,
+                    exportTimestamp: Date.now()
+                }
             };
         } catch (error) {
             throw new Error('Failed to export data: ' + error.message);
@@ -314,6 +581,14 @@ class PomodoroDatabase {
 
             // Clear existing data
             await this.clearAllSessions();
+            await this.clearAllTasks();
+
+            // Import tasks (if available)
+            if (data.tasks && Array.isArray(data.tasks)) {
+                for (const task of data.tasks) {
+                    await this.addTask(task.name);
+                }
+            }
 
             // Import sessions
             for (const session of data.sessions) {
